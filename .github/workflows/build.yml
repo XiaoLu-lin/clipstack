@@ -58,9 +58,15 @@ jobs:
           APP_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/macos"
           DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
           codesign --force --deep --sign - "$APP_DIR/ClipStack.app"
-          # 重签后重建 dmg，使分发包内含已签名 app，避免 Gatekeeper 报"已损坏"
+          # 重签后用"中转目录 + Applications 软链接"重建 dmg：
+          # 既保留有效签名，又恢复标准的"拖到应用程序"安装界面
+          # （直接用 -srcfolder <app> 会丢掉 Tauri 默认 dmg 里的 Applications 拖放链接）
+          STAGE=$(mktemp -d)
+          cp -R "$APP_DIR/ClipStack.app" "$STAGE/ClipStack.app"
+          ln -s /Applications "$STAGE/Applications"
           DMG=$(ls "$DMG_DIR"/*.dmg)
-          hdiutil create -volname ClipStack -srcfolder "$APP_DIR/ClipStack.app" -ov -format UDZO "$DMG"
+          hdiutil create -volname ClipStack -srcfolder "$STAGE" -ov -format UDZO "$DMG"
+          rm -rf "$STAGE"
 
       # Windows: 仅在配置了 WINDOWS_PFX_BASE64 + WINDOWS_PFX_PASSWORD 时签名；否则跳过
       # （Windows 无免费 ad-hoc，未签名包仍可安装，仅 SmartScreen 会提示"仍要运行"）
