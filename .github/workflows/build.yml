@@ -47,6 +47,9 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         with:
           args: --target ${{ matrix.target }}
+        env:
+          # 自动更新需对更新包签名；私钥由仓库 Secrets 提供（不入库）
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
       # Tauri 的 ad-hoc 签名资源封印不完整，直接分发会报"已损坏"，需递归重签
       - name: Re-sign macOS app (fix ad-hoc seal)
