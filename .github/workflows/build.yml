@@ -54,10 +54,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           args: --target ${{ matrix.target }}
-          release: ${{ startsWith(github.ref, 'refs/tags/') }}
-          tagName: ${{ github.ref_name }}
+          # tauri-action 没有 release 开关；只有提供 tagName 时才会创建/挂到 GitHub Release。
+          # 普通 push（main）tagName 为空 → 只构建，产物走下方 Artifact 上传。
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: 'ClipStack ${{ github.ref_name }}'
           releaseBody: '下载下方 assets 中的 macOS（.dmg）或 Windows（.msi / .exe）安装包。'
+          releaseDraft: false
 
       # 非标签推送：把产物作为 Artifact 上传，方便直接下载测试
       - name: Upload artifacts (macOS)
