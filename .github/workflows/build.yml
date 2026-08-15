@@ -1,0 +1,70 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest   # Apple Silicon (aarch64) .app / .dmg
+            target: aarch64-apple-darwin
+          - platform: windows-latest # Windows x64 .msi / .exe
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.platform }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Linux 才需要系统依赖；macOS / Windows 由镜像自带
+      - name: Install frontend dependencies
+        run: pnpm install
+
+      - name: Build & bundle
+        uses: tauri-apps/tauri-action@v0
+        with:
+          args: --target ${{ matrix.target }}
+
+      # Tauri 的 ad-hoc 签名资源封印不完整，直接分发会报"已损坏"，需重签
+      - name: Re-sign macOS app (fix ad-hoc seal)
+        if: matrix.platform == 'macos-latest'
+        run: |
+          codesign --force --deep --sign - "src-tauri/target/${{ matrix.target }}/release/bundle/macos/ClipStack.app"
+
+      # 上传产物，方便直接下载测试
+      - name: Upload artifacts (macOS)
+        if: matrix.platform == 'macos-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipstack-macos
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app
+
+      - name: Upload artifacts (Windows)
+        if: matrix.platform == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: clipstack-windows
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
+            src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
