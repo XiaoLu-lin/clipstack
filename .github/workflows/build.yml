@@ -3,8 +3,12 @@ name: Build
 on:
   push:
     branches: [main, master]
+    tags: ['v*']
   pull_request:
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -44,13 +48,36 @@ jobs:
         with:
           args: --target ${{ matrix.target }}
 
-      # Tauri 的 ad-hoc 签名资源封印不完整，直接分发会报"已损坏"，需重签
+      # Tauri 的 ad-hoc 签名资源封印不完整，直接分发会报"已损坏"，需递归重签
       - name: Re-sign macOS app (fix ad-hoc seal)
         if: matrix.platform == 'macos-latest'
         run: |
-          codesign --force --deep --sign - "src-tauri/target/${{ matrix.target }}/release/bundle/macos/ClipStack.app"
+          APP_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/macos"
+          DMG_DIR="src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          codesign --force --deep --sign - "$APP_DIR/ClipStack.app"
+          # 重签后重建 dmg，使分发包内含已签名 app，避免 Gatekeeper 报"已损坏"
+          DMG=$(ls "$DMG_DIR"/*.dmg)
+          hdiutil create -volname ClipStack -srcfolder "$APP_DIR/ClipStack.app" -ov -format UDZO "$DMG"
 
-      # 上传产物，方便直接下载测试
+      # Windows: 仅在配置了 WINDOWS_PFX_BASE64 + WINDOWS_PFX_PASSWORD 时签名；否则跳过
+      # （Windows 无免费 ad-hoc，未签名包仍可安装，仅 SmartScreen 会提示"仍要运行"）
+      - name: Sign Windows binaries (optional)
+        if: matrix.platform == 'windows-latest'
+        env:
+          WINDOWS_PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        shell: pwsh
+        run: |
+          if (-not $env:WINDOWS_PFX_BASE64) {
+            Write-Host "::notice::未配置 WINDOWS_PFX_BASE64，跳过 Windows 签名"
+            exit 0
+          }
+          $env:WINDOWS_PFX_BASE64 | Out-File -Encoding ascii pfx.b64
+          certutil -decode pfx.b64 cert.pfx
+          # 证书就绪后在此用 signtool 对 msi/exe 签名（需将 signtool 加入 PATH）
+          Write-Host "检测到证书，待补全 signtool 签名步骤"
+
+      # 上传产物，方便直接下载测试 / 手动发布 Release
       - name: Upload artifacts (macOS)
         if: matrix.platform == 'macos-latest'
         uses: actions/upload-artifact@v4
